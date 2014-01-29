@@ -327,7 +327,7 @@ class ConnectionManager(component.Component):
         self.glade.get_widget("chk_autoconnect").set_active(self.gtkui_config["autoconnect"])
         self.glade.get_widget("chk_autostart").set_active(self.gtkui_config["autostart_localhost"])
         self.glade.get_widget("chk_donotshow").set_active(not self.gtkui_config["show_connection_manager_on_start"])
-        self.glade.get_widget("entry_pathmapping").get_buffer().set_text(self.gtkui_config["pathmapping"])
+        self.glade.get_widget("entry_pathmapping").get_buffer().set_text(str(self.gtkui_config["pathmapping"]))
 
     def __save_options(self):
         """
@@ -336,8 +336,9 @@ class ConnectionManager(component.Component):
         self.gtkui_config["autoconnect"] = self.glade.get_widget("chk_autoconnect").get_active()
         self.gtkui_config["autostart_localhost"] = self.glade.get_widget("chk_autostart").get_active()
         self.gtkui_config["show_connection_manager_on_start"] = not self.glade.get_widget("chk_donotshow").get_active()
+        from ast import literal_eval
         buffer = self.glade.get_widget("entry_pathmapping").get_buffer()
-        self.gtkui_config["pathmapping"] = buffer.get_text(*buffer.get_bounds())
+        self.gtkui_config["pathmapping"] = literal_eval(buffer.get_text(*buffer.get_bounds()))
 
     def __update_buttons(self):
         """

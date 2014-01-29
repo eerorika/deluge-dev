@@ -274,13 +274,8 @@ def open_file(path):
         from re import subn
         open_file = False
         pathmapping = ConfigManager("gtkui.conf")["pathmapping"]
-        if not pathmapping:
-            return
-        for mapstr in pathmapping.splitlines():
-            mapping = mapstr.split('=', 2)
-            if(len(mapping) < 2):
-                continue
-            path, open_file = subn('^%s' % mapping[0], mapping[1], path)
+        for local, remote in pathmapping.items():
+            path, open_file = subn('^%s' % local, remote, path)
             if(open_file):
                 break
     if open_file:
