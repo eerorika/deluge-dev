@@ -237,7 +237,7 @@ class FilesTab(Tab):
         self.torrent_id = None
 
     def start(self):
-        attr = "hide" if not client.is_localhost() else "show"
+        attr = "hide" if not deluge.ui.gtkui.common.files_available() else "show"
         for widget in self.localhost_widgets:
             getattr(widget, attr)()
 
@@ -341,7 +341,7 @@ class FilesTab(Tab):
         self.torrent_id = None
 
     def _on_row_activated(self, tree, path, view_column):
-        if client.is_localhost:
+        if deluge.ui.gtkui.common.files_available():
             component.get("SessionProxy").get_torrent_status(self.torrent_id, ["save_path", "files"]).addCallback(self._on_open_file)
 
     def get_file_path(self, row, path=""):
@@ -361,7 +361,7 @@ class FilesTab(Tab):
             path = self.get_file_path(select).split("/")
             filepath = os.path.join(status["save_path"], *path)
             log.debug("Open file '%s'", filepath)
-            deluge.common.open_file(filepath)
+            deluge.ui.gtkui.common.open_file(filepath)
 
     ## The following 3 methods create the folder/file view in the treeview
     def prepare_file_store(self, files):

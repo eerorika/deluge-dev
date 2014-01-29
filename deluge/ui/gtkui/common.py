@@ -263,3 +263,25 @@ def associate_magnet_links(overwrite=False):
                     log.error("Unable to register Deluge as default magnet uri handler.")
                     return False
     return False
+
+from deluge.configmanager import ConfigManager
+def files_available():
+    return client.is_localhost() or ConfigManager("gtkui.conf")["pathmapping"]
+
+def open_file(path):
+    open_file = True
+    if not client.is_localhost():
+        from re import subn
+        open_file = False
+        pathmapping = ConfigManager("gtkui.conf")["pathmapping"]
+        if not pathmapping:
+            return
+        for mapstr in pathmapping.splitlines():
+            mapping = mapstr.split('=', 2)
+            if(len(mapping) < 2):
+                continue
+            path, open_file = subn('^%s' % mapping[0], mapping[1], path)
+            if(open_file):
+                break
+    if open_file:
+        deluge.common.open_file(path)

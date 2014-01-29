@@ -167,7 +167,8 @@ DEFAULT_PREFS = {
     "sidebar_position": 170,
     "show_rate_in_title": False,
     "focus_main_window_on_add": True,
-    "createtorrent.trackers": []
+    "createtorrent.trackers": [],
+    "pathmapping": "",
 }
 
 class GtkUI(object):
