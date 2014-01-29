@@ -357,11 +357,10 @@ class FilesTab(Tab):
         save_path = status["save_path"]
         open_file = True
         if not client.is_localhost():
-            from deluge.ui.gtkui.common import path_to_local 
+            from deluge.ui.gtkui.common import path_to_local
             save_path, open_file = path_to_local(save_path)
         if not open_file:
             return
-        
         paths = self.listview.get_selection().get_selected_rows()[1]
         selected = []
         for path in paths:
