@@ -168,7 +168,7 @@ DEFAULT_PREFS = {
     "show_rate_in_title": False,
     "focus_main_window_on_add": True,
     "createtorrent.trackers": [],
-    "pathmapping": {},
+    "path_mapping": {},
 }
 
 class GtkUI(object):

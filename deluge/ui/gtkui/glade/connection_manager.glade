@@ -450,11 +450,11 @@
                       </packing>
                     </child>
                     <child>
-                      <widget class="GtkVBox" id="vbox_pathmapping">
+                      <widget class="GtkVBox" id="vbox_path_mapping">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
                         <child>
-                          <widget class="GtkLabel" id="label_pathmapping">
+                          <widget class="GtkLabel" id="label_path_mapping">
                             <property name="visible">True</property>
                             <property name="can_focus">False</property>
                             <property name="xalign">0</property>
@@ -470,7 +470,7 @@ Example:
                           </packing>
                         </child>
                         <child>
-                          <widget class="GtkTextView" id="entry_pathmapping">
+                          <widget class="GtkTextView" id="entry_path_mapping">
                             <property name="height_request">48</property>
                             <property name="visible">True</property>
                             <property name="can_focus">True</property>
