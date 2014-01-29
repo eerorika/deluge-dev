@@ -180,11 +180,13 @@ class MenuBar(component.Component):
 
         # Hide the Open Folder menuitem and separator if not connected to a
         # localhost.
+        
         non_remote_items = [
             "menuitem_open_folder",
             "separator4"
         ]
-        if not client.is_localhost():
+        from deluge.ui.gtkui.common import files_available
+        if not files_available():
             for widget in non_remote_items:
                 self.torrentmenu_glade.get_widget(widget).hide()
                 self.torrentmenu_glade.get_widget(widget).set_no_show_all(True)
@@ -306,7 +308,14 @@ class MenuBar(component.Component):
     def on_menuitem_open_folder_activate(self, data=None):
         log.debug("on_menuitem_open_folder")
         def _on_torrent_status(status):
-            deluge.common.open_file(status["save_path"])
+            save_path = status["save_path"]
+            open_file = True
+            if not client.is_localhost():
+                from deluge.ui.gtkui.common import path_to_local 
+                save_path, open_file = path_to_local(save_path)
+            
+            if(open_file):
+                deluge.common.open_file(save_path)
         for torrent_id in component.get("TorrentView").get_selected_torrents():
             component.get("SessionProxy").get_torrent_status(torrent_id, ["save_path"]).addCallback(_on_torrent_status)
 

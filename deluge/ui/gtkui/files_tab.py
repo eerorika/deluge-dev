@@ -237,7 +237,8 @@ class FilesTab(Tab):
         self.torrent_id = None
 
     def start(self):
-        attr = "hide" if not client.is_localhost() else "show"
+        from deluge.ui.gtkui.common import files_available
+        attr = "hide" if not files_available() else "show"
         for widget in self.localhost_widgets:
             getattr(widget, attr)()
 
@@ -341,7 +342,8 @@ class FilesTab(Tab):
         self.torrent_id = None
 
     def _on_row_activated(self, tree, path, view_column):
-        if client.is_localhost:
+        from deluge.ui.gtkui.common import files_available
+        if files_available():
             component.get("SessionProxy").get_torrent_status(self.torrent_id, ["save_path", "files"]).addCallback(self._on_open_file)
 
     def get_file_path(self, row, path=""):
@@ -352,14 +354,21 @@ class FilesTab(Tab):
         return self.get_file_path(self.treestore.iter_parent(row), path)
 
     def _on_open_file(self, status):
+        save_path = status["save_path"]
+        open_file = True
+        if not client.is_localhost():
+            from deluge.ui.gtkui.common import path_to_local 
+            save_path, open_file = path_to_local(save_path)
+        if not open_file:
+            return
+        
         paths = self.listview.get_selection().get_selected_rows()[1]
         selected = []
         for path in paths:
             selected.append(self.treestore.get_iter(path))
-
         for select in selected:
             path = self.get_file_path(select).split("/")
-            filepath = os.path.join(status["save_path"], *path)
+            filepath = os.path.join(save_path, *path)
             log.debug("Open file '%s'", filepath)
             deluge.common.open_file(filepath)
 
