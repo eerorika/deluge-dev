@@ -184,7 +184,7 @@ class MenuBar(component.Component):
             "menuitem_open_folder",
             "separator4"
         ]
-        if not deluge.ui.gtkui.common.files_available():
+        if not (client.is_localhost() or deluge.ui.gtkui.common.current_path_mapping()):
             for widget in non_remote_items:
                 self.torrentmenu_glade.get_widget(widget).hide()
                 self.torrentmenu_glade.get_widget(widget).set_no_show_all(True)

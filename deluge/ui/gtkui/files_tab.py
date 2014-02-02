@@ -237,7 +237,7 @@ class FilesTab(Tab):
         self.torrent_id = None
 
     def start(self):
-        attr = "hide" if not deluge.ui.gtkui.common.files_available() else "show"
+        attr = "hide" if not (client.is_localhost() or deluge.ui.gtkui.common.current_path_mapping()) else "show"
         for widget in self.localhost_widgets:
             getattr(widget, attr)()
 
@@ -341,7 +341,7 @@ class FilesTab(Tab):
         self.torrent_id = None
 
     def _on_row_activated(self, tree, path, view_column):
-        if deluge.ui.gtkui.common.files_available():
+        if client.is_localhost() or deluge.ui.gtkui.common.current_path_mapping():
             component.get("SessionProxy").get_torrent_status(self.torrent_id, ["save_path", "files"]).addCallback(self._on_open_file)
 
     def get_file_path(self, row, path=""):

@@ -264,20 +264,22 @@ def associate_magnet_links(overwrite=False):
                     return False
     return False
 
-from deluge.configmanager import ConfigManager
-def files_available():
-    return client.is_localhost() or ConfigManager("gtkui.conf")["path_mapping"]
-
-def open_file(path):
-    if client.is_localhost():
-        deluge.common.open_file(path)
+def current_path_mapping():
+    from deluge.configmanager import ConfigManager
+    path_mappings = ConfigManager("gtkui.conf")["path_mapping"]
+    connection_key = str(client.connection_info())
+    if connection_key in path_mappings:
+        return path_mappings[connection_key]
     else:
-        from re import subn
-        open_file = False
-        path_mapping = ConfigManager("gtkui.conf")["path_mapping"]
-        for local, remote in path_mapping.items():
-            path, open_file = subn("^%s" % local, remote, path)
-            if(open_file):
-                break
-        if open_file:
-            deluge.common.open_file(path)
+        return []
+
+def open_file(filepath):
+    if client.is_localhost():
+        return deluge.common.open_file(filepath)
+    from re import subn
+    from os import sep, path
+    for local, remote in current_path_mapping():
+        sub_path, match_found = subn("^%s" % remote.rstrip(sep), "", filepath)
+        if(match_found):
+            filepath = path.join(local, sub_path.lstrip(sep))
+            return deluge.common.open_file(filepath)
