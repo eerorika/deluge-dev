@@ -269,14 +269,15 @@ def files_available():
     return client.is_localhost() or ConfigManager("gtkui.conf")["path_mapping"]
 
 def open_file(path):
-    open_file = True
-    if not client.is_localhost():
+    if client.is_localhost():
+        deluge.common.open_file(path)
+    else:
         from re import subn
         open_file = False
         path_mapping = ConfigManager("gtkui.conf")["path_mapping"]
         for local, remote in path_mapping.items():
-            path, open_file = subn('^%s' % local, remote, path)
+            path, open_file = subn("^%s" % local, remote, path)
             if(open_file):
                 break
-    if open_file:
-        deluge.common.open_file(path)
+        if open_file:
+            deluge.common.open_file(path)
