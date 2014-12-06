@@ -173,22 +173,20 @@ def get_default_download_dir():
     :rtype: string
 
     """
-    if windows_check():
-        return os.path.join(os.path.expanduser("~"), 'Downloads')
-    else:
+    download_dir = ""
+    if not windows_check():
         from xdg.BaseDirectory import xdg_config_home
-        userdir_file = os.path.join(xdg_config_home, 'user-dirs.dirs')
         try:
-            for line in open(userdir_file, 'r'):
-                if not line.startswith('#') and 'XDG_DOWNLOAD_DIR' in line:
-                        download_dir = os.path.expandvars(\
-                                        line.partition("=")[2].rstrip().strip('"'))
-                        if os.path.isdir(download_dir):
-                            return download_dir
+            for line in open(os.path.join(xdg_config_home, 'user-dirs.dirs'), 'r'):
+                if not line.startswith('#') and line.startswith('XDG_DOWNLOAD_DIR'):
+                    download_dir = os.path.expandvars(line.partition("=")[2].rstrip().strip('"'))
+                    break
         except IOError:
             pass
 
-        return os.environ.get("HOME")
+    if not download_dir:
+        download_dir = os.path.join(os.path.expanduser("~"), 'Downloads')
+    return download_dir
 
 def windows_check():
     """
@@ -233,12 +231,14 @@ def get_pixmap(fname):
     return pkg_resources.resource_filename("deluge", os.path.join("data", \
                                            "pixmaps", fname))
 
-def open_file(path):
+def open_file(path, timestamp=None):
     """
     Opens a file or folder using the system configured program
 
     :param path: the path to the file or folder to open
     :type path: string
+    :param timestamp: the timestamp of the event that requested to open
+    :type timestamp: int
 
     """
     if windows_check():
@@ -246,7 +246,12 @@ def open_file(path):
     elif osx_check():
         subprocess.Popen(["open", "%s" % path])
     else:
-        subprocess.Popen(["xdg-open", "%s" % path])
+        if timestamp is None:
+            timestamp = int(time.time())
+        env = os.environ.copy()
+        env["DESKTOP_STARTUP_ID"] = "%s-%u-%s-xdg_open_TIME%d" % \
+            (os.path.basename(sys.argv[0]), os.getpid(), os.uname()[1], timestamp)
+        subprocess.Popen(["xdg-open", "%s" % path], env=env)
 
 def open_url_in_browser(url):
     """
@@ -525,7 +530,7 @@ def free_space(path):
     :raises InvalidPathError: if the path is not valid
 
     """
-    if not os.path.exists(path):
+    if not path or not os.path.exists(path):
         raise InvalidPathError("%s is not a valid path" % path)
 
     if windows_check():
@@ -628,37 +633,55 @@ def xml_encode(string):
 
 def decode_string(s, encoding="utf8"):
     """
-    Decodes a string and re-encodes it in utf8.  If it cannot decode using
-    `:param:encoding` then it will try to detect the string encoding and
-    decode it.
+    Decodes a string and return unicode. If it cannot decode using
+    `:param:encoding` then it will try latin1, and if that fails,
+    try to detect the string encoding. If that fails, decode with
+    ignore.
 
     :param s: string to decode
     :type s: string
     :keyword encoding: the encoding to use in the decoding
     :type encoding: string
+    :returns: s converted to unicode
+    :rtype: unicode
 
     """
+    if not s:
+        return u''
+    elif isinstance(s, unicode):
+        return s
 
-    try:
-        s = s.decode(encoding).encode("utf8", "ignore")
-    except UnicodeDecodeError:
-        s = s.decode(chardet.detect(s)["encoding"], "ignore").encode("utf8", "ignore")
-    return s
+    encodings = [lambda: ("utf8", 'strict'),
+                 lambda: ("iso-8859-1", 'strict'),
+                 lambda: (chardet.detect(s)["encoding"], 'strict'),
+                 lambda: (encoding, 'ignore')]
 
-def utf8_encoded(s):
+    if not encoding is "utf8":
+        encodings.insert(0, lambda: (encoding, 'strict'))
+
+    for l in encodings:
+        try:
+            return s.decode(*l())
+        except UnicodeDecodeError:
+            pass
+    return u''
+
+def utf8_encoded(s, encoding="utf8"):
     """
     Returns a utf8 encoded string of s
 
     :param s: (unicode) string to (re-)encode
     :type s: basestring
+    :keyword encoding: the encoding to use in the decoding
+    :type encoding: string
     :returns: a utf8 encoded string of s
     :rtype: str
 
     """
     if isinstance(s, str):
-        s = decode_string(s)
+        s = decode_string(s, encoding).encode("utf8")
     elif isinstance(s, unicode):
-        s = s.encode("utf8", "ignore")
+        s = s.encode("utf8")
     return s
 
 class VersionSplit(object):

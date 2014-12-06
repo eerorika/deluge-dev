@@ -66,6 +66,10 @@ class Preferences(component.Component):
         self.glade.get_widget("image_magnet").set_from_file(
             deluge.common.get_pixmap("magnet.png"))
 
+        # Hide the unused associate magnet button on OSX see: #2420
+        if deluge.common.osx_check():
+            self.glade.get_widget("button_associate_magnet").hide()
+
         # Setup the liststore for the categories (tab pages)
         self.liststore = gtk.ListStore(int, str)
         self.treeview.set_model(self.liststore)
@@ -373,6 +377,8 @@ class Preferences(component.Component):
                 elif modifier == "value":
                     widget.set_value(float(value))
                 elif modifier == "text":
+                    if value is None:
+                        value = ""
                     widget.set_text(value)
 
             for key in core_widgets.keys():
@@ -584,7 +590,9 @@ class Preferences(component.Component):
         new_core_config["outgoing_ports"] = outgoing_ports
         new_core_config["random_outgoing_ports"] = \
             self.glade.get_widget("chk_random_outgoing_ports").get_active()
-        new_core_config["listen_interface"] = self.glade.get_widget("entry_interface").get_text()
+        incoming_address = self.glade.get_widget("entry_interface").get_text().strip()
+        if deluge.common.is_ip(incoming_address) or not incoming_address:
+            new_core_config["listen_interface"] = incoming_address
         new_core_config["peer_tos"] = self.glade.get_widget("entry_peer_tos").get_text()
         new_core_config["dht"] = self.glade.get_widget("chk_dht").get_active()
         new_core_config["upnp"] = self.glade.get_widget("chk_upnp").get_active()

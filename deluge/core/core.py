@@ -100,7 +100,7 @@ class Core(component.Component):
 
         # Set session settings
         self.settings.send_redundant_have = True
-        if deluge.common.windows_check():
+        if deluge.common.windows_check() and lt.version_major == 0 and lt.version_minor <= 15:
             self.settings.disk_io_write_mode = \
                 lt.io_buffer_mode_t.disable_os_cache
             self.settings.disk_io_read_mode = \
@@ -134,8 +134,11 @@ class Core(component.Component):
         # store the one in the config so we can restore it on shutdown
         self.__old_interface = None
         if listen_interface:
-            self.__old_interface = self.config["listen_interface"]
-            self.config["listen_interface"] = listen_interface
+            if deluge.common.is_ip(listen_interface):
+                self.__old_interface = self.config["listen_interface"]
+                self.config["listen_interface"] = listen_interface
+            else:
+                log.error("Invalid listen interface (must be IP Address): %s", listen_interface)
 
     def start(self):
         """Starts the core"""
@@ -484,7 +487,7 @@ class Core(component.Component):
             try:
                 config[key] = self.config[key]
             except KeyError:
-                config[key] = None
+                pass
         return config
 
     @export

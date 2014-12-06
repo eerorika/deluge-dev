@@ -483,7 +483,11 @@ Deluge.ux.ScheduleSelector = Ext.extend(Ext.form.FieldSet, {
             var hourConfig = config[i];
 
             for (var j=0; j < this.daysOfWeek.length; j++) {
-                var cell = this.scheduleCells[this.daysOfWeek[j]][i];
+                if (this.scheduleCells == undefined) {
+                    var cell = hourConfig[j];
+                } else {
+                    var cell = this.scheduleCells[this.daysOfWeek[j]][i];
+                }
                 cell.currentValue = cell.oldValue = hourConfig[j];
                 this.updateCell(cell);
             }
@@ -561,7 +565,7 @@ Deluge.ux.preferences.SchedulerPage = Ext.extend(Ext.Panel, {
             decimalPrecision: 0
         });
 
-        deluge.preferences.on('show', this.updateConfig, this);
+        this.on('show', this.updateConfig, this);
     },
 
     onRender: function(ct, position) {
@@ -587,11 +591,6 @@ Deluge.ux.preferences.SchedulerPage = Ext.extend(Ext.Panel, {
 
     onOk: function() {
         this.onApply();
-    },
-
-    afterRender: function() {
-        Deluge.ux.preferences.SchedulerPage.superclass.afterRender.call(this);
-        this.updateConfig();
     },
 
     updateConfig: function() {

@@ -270,13 +270,12 @@ def current_path_mapping():
     host, _, _ = client.connection_info()
     return host_mapping[host] if host in host_mapping else []
 
-def open_file(filepath):
-    if client.is_localhost():
-        return deluge.common.open_file(filepath)
+def open_file(filepath, timestamp=None):
     from re import subn
     from os import sep, path
     for local, remote in current_path_mapping():
         sub_path, match_found = subn("^%s" % remote, "", filepath)
         if(match_found):
             filepath = path.join(local, sub_path.lstrip(sep))
-            return deluge.common.open_file(filepath)
+            break
+    return deluge.common.open_file(filepath, timestamp)

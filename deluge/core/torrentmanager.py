@@ -55,7 +55,7 @@ from deluge.configmanager import ConfigManager, get_config_dir
 from deluge.core.torrent import Torrent
 from deluge.core.torrent import TorrentOptions
 import deluge.core.oldstateupgrader
-from deluge.common import utf8_encoded
+from deluge.common import utf8_encoded, decode_string
 
 from deluge.log import LOG as log
 
@@ -148,6 +148,9 @@ class TorrentManager(component.Component):
         # self.num_resume_data used to save resume_data in bulk
         self.num_resume_data = 0
 
+        # Keep track of torrents finished but moving storage
+        self.waiting_on_finish_moving = []
+
         # Keeps track of resume data that needs to be saved to disk
         self.resume_data = {}
 
@@ -181,6 +184,8 @@ class TorrentManager(component.Component):
             self.on_alert_tracker_error)
         self.alerts.register_handler("storage_moved_alert",
             self.on_alert_storage_moved)
+        self.alerts.register_handler("storage_moved_failed_alert",
+            self.on_alert_storage_moved_failed)
         self.alerts.register_handler("torrent_resumed_alert",
             self.on_alert_torrent_resumed)
         self.alerts.register_handler("state_changed_alert",
@@ -382,9 +387,14 @@ class TorrentManager(component.Component):
             # We have a torrent_info object or magnet uri so we're not loading from state.
             if torrent_info:
                 add_torrent_id = str(torrent_info.info_hash())
+                # If this torrent id is already in the session, merge any additional trackers.
                 if add_torrent_id in self.get_torrent_list():
-                    # Torrent already exists just append any extra trackers.
-                    log.debug("Torrent (%s) exists, checking for trackers to add...", add_torrent_id)
+                    log.info("Merging trackers for torrent (%s) already in session...", add_torrent_id)
+                    # Don't merge trackers if either torrent has private flag set
+                    if self[add_torrent_id].get_status(["private"])["private"]:
+                        log.info("Merging trackers abandoned: Torrent has private flag set.")
+                        return
+
                     add_torrent_trackers = []
                     for value in torrent_info.trackers():
                         tracker = {}
@@ -394,17 +404,18 @@ class TorrentManager(component.Component):
 
                     torrent_trackers = {}
                     tracker_list = []
-                    for tracker in  self[add_torrent_id].get_status(["trackers"])["trackers"]:
+                    for tracker in self[add_torrent_id].get_status(["trackers"])["trackers"]:
                         torrent_trackers[(tracker["url"])] = tracker
                         tracker_list.append(tracker)
 
-                    added_tracker = False
+                    added_tracker = 0
                     for tracker in add_torrent_trackers:
                         if tracker['url'] not in torrent_trackers:
                             tracker_list.append(tracker)
-                            added_tracker = True
+                            added_tracker += 1
 
                     if added_tracker:
+                        log.info("%s tracker(s) merged into torrent.", added_tracker)
                         self[add_torrent_id].set_trackers(tracker_list)
                     return
 
@@ -764,6 +775,7 @@ class TorrentManager(component.Component):
             return
 
         path = os.path.join(get_config_dir(), "state", "torrents.fastresume")
+        path_tmp = path + ".tmp"
 
         # First step is to load the existing file and update the dictionary
         if resume_data is None:
@@ -774,11 +786,12 @@ class TorrentManager(component.Component):
 
         try:
             log.debug("Saving fastresume file: %s", path)
-            fastresume_file = open(path, "wb")
+            fastresume_file = open(path_tmp, "wb")
             fastresume_file.write(lt.bencode(resume_data))
             fastresume_file.flush()
             os.fsync(fastresume_file.fileno())
             fastresume_file.close()
+            shutil.move(path_tmp, path)
         except IOError:
             log.warning("Error trying to save fastresume file")
 
@@ -887,19 +900,16 @@ class TorrentManager(component.Component):
         # that the torrent wasn't downloaded, but just added.
         total_download = torrent.get_status(["total_payload_download"])["total_payload_download"]
 
-        # Move completed download to completed folder if needed
-        if not torrent.is_finished and total_download:
-            move_path = None
-
-            if torrent.options["move_completed"]:
-                move_path = torrent.options["move_completed_path"]
-                if torrent.options["download_location"] != move_path:
-                    torrent.move_storage(move_path)
-
         torrent.update_state()
         if not torrent.is_finished and total_download:
-            torrent.is_finished = True
-            component.get("EventManager").emit(TorrentFinishedEvent(torrent_id))
+            # Move completed download to completed folder if needed
+            if torrent.options["move_completed"] and \
+                    torrent.options["download_location"] != torrent.options["move_completed_path"]:
+                self.waiting_on_finish_moving.append(torrent_id)
+                torrent.move_storage(torrent.options["move_completed_path"])
+            else:
+                torrent.is_finished = True
+                component.get("EventManager").emit(TorrentFinishedEvent(torrent_id))
         else:
             torrent.is_finished = True
 
@@ -958,7 +968,7 @@ class TorrentManager(component.Component):
         torrent.update_state()
 
     def on_alert_tracker_reply(self, alert):
-        log.debug("on_alert_tracker_reply: %s", alert.message().decode("utf8"))
+        log.debug("on_alert_tracker_reply: %s", decode_string(alert.message()))
         try:
             torrent = self.torrents[str(alert.handle.info_hash())]
         except:
@@ -990,7 +1000,7 @@ class TorrentManager(component.Component):
             torrent = self.torrents[str(alert.handle.info_hash())]
         except:
             return
-        tracker_status = '%s: %s' % (_("Warning"), str(alert.message()))
+        tracker_status = '%s: %s' % (_("Warning"), decode_string(alert.message()))
         # Set the tracker status for the torrent
         torrent.set_tracker_status(tracker_status)
 
@@ -1006,11 +1016,31 @@ class TorrentManager(component.Component):
     def on_alert_storage_moved(self, alert):
         log.debug("on_alert_storage_moved")
         try:
-            torrent = self.torrents[str(alert.handle.info_hash())]
-        except:
+            torrent_id = str(alert.handle.info_hash())
+            torrent = self.torrents[torrent_id]
+        except (RuntimeError, KeyError):
             return
         torrent.set_save_path(os.path.normpath(alert.handle.save_path()))
         torrent.set_move_completed(False)
+
+        if torrent_id in self.waiting_on_finish_moving:
+            self.waiting_on_finish_moving.remove(torrent_id)
+            torrent.is_finished = True
+            component.get("EventManager").emit(TorrentFinishedEvent(torrent_id))
+
+    def on_alert_storage_moved_failed(self, alert):
+        """Alert handler for libtorrent storage_moved_failed_alert"""
+        log.debug("on_alert_storage_moved_failed: %s", decode_string(alert.message()))
+        try:
+            torrent_id = str(alert.handle.info_hash())
+            torrent = self.torrents[torrent_id]
+        except (RuntimeError, KeyError):
+            return
+
+        if torrent_id in self.waiting_on_finish_moving:
+            self.waiting_on_finish_moving.remove(torrent_id)
+            torrent.is_finished = True
+            component.get("EventManager").emit(TorrentFinishedEvent(torrent_id))
 
     def on_alert_torrent_resumed(self, alert):
         log.debug("on_alert_torrent_resumed")
@@ -1063,7 +1093,7 @@ class TorrentManager(component.Component):
         self.save_resume_data_file()
 
     def on_alert_save_resume_data_failed(self, alert):
-        log.debug("on_alert_save_resume_data_failed: %s", alert.message())
+        log.debug("on_alert_save_resume_data_failed: %s", decode_string(alert.message()))
         try:
             torrent = self.torrents[str(alert.handle.info_hash())]
         except:
@@ -1077,7 +1107,7 @@ class TorrentManager(component.Component):
 
     def on_alert_file_renamed(self, alert):
         log.debug("on_alert_file_renamed")
-        log.debug("index: %s name: %s", alert.index, alert.name.decode("utf8"))
+        log.debug("index: %s name: %s", alert.index, decode_string(alert.name))
         try:
             torrent = self.torrents[str(alert.handle.info_hash())]
             torrent_id = str(alert.handle.info_hash())
@@ -1115,7 +1145,7 @@ class TorrentManager(component.Component):
         torrent.on_metadata_received()
 
     def on_alert_file_error(self, alert):
-        log.debug("on_alert_file_error: %s", alert.message())
+        log.debug("on_alert_file_error: %s", decode_string(alert.message()))
         try:
             torrent = self.torrents[str(alert.handle.info_hash())]
         except:
@@ -1123,7 +1153,7 @@ class TorrentManager(component.Component):
         torrent.update_state()
 
     def on_alert_file_completed(self, alert):
-        log.debug("file_completed_alert: %s", alert.message())
+        log.debug("file_completed_alert: %s", decode_string(alert.message()))
         try:
             torrent_id = str(alert.handle.info_hash())
         except:

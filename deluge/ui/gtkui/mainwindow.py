@@ -39,6 +39,7 @@ pygtk.require('2.0')
 import gtk, gtk.glade
 import gobject
 import pkg_resources
+from hashlib import sha1 as sha
 
 try:
     import wnck
@@ -49,6 +50,7 @@ from deluge.ui.client import client
 import deluge.component as component
 from deluge.configmanager import ConfigManager
 from deluge.ui.gtkui.ipcinterface import process_args
+from deluge.ui.gtkui.dialogs import PasswordDialog
 from twisted.internet import reactor, defer
 from twisted.internet.error import ReactorNotRunning
 
@@ -117,7 +119,6 @@ class MainWindow(component.Component):
             pass
         self.window.show()
 
-
     def hide(self):
         component.pause("TorrentView")
         component.get("TorrentView").save_state()
@@ -129,21 +130,36 @@ class MainWindow(component.Component):
         self.window.hide()
 
     def present(self):
-        # Restore the proper x,y coords for the window prior to showing it
-        try:
-            self.config["window_x_pos"] = self.window_x_pos
-            self.config["window_y_pos"] = self.window_y_pos
-        except:
-            pass
-        try:
-            component.resume("TorrentView")
-            component.resume("StatusBar")
-            component.resume("TorrentDetails")
-        except:
-            pass
+        def restore():
+            # Restore the proper x,y coords for the window prior to showing it
+            try:
+                if self.window_x_pos == -32000 or self.window_y_pos == -32000:
+                    self.config["window_x_pos"] = 0
+                    self.config["window_y_pos"] = 0
+                else:
+                    self.config["window_x_pos"] = self.window_x_pos
+                    self.config["window_y_pos"] = self.window_y_pos
+            except:
+                pass
+            try:
+                component.resume("TorrentView")
+                component.resume("StatusBar")
+                component.resume("TorrentDetails")
+            except:
+                pass
 
-        self.window.present()
-        self.load_window_state()
+            self.window.present()
+            self.load_window_state()
+
+        if self.config["lock_tray"] and not self.visible():
+            dialog = PasswordDialog(_("Enter your password to show Deluge..."))
+            def on_dialog_response(response_id):
+                if response_id == gtk.RESPONSE_OK:
+                    if self.config["tray_password"] == sha(dialog.get_password()).hexdigest():
+                        restore()
+            dialog.run().addCallback(on_dialog_response)
+        else:
+            restore()
 
     def active(self):
         """Returns True if the window is active, False if not."""
@@ -164,31 +180,41 @@ class MainWindow(component.Component):
         :param shutdown: whether or not to shutdown the daemon as well
         :type shutdown: boolean
         """
+        def quit_gtkui():
+            def shutdown_daemon(result):
+                return client.daemon.shutdown()
 
-        def shutdown_daemon(result):
-            return client.daemon.shutdown()
+            def disconnect_client(result):
+                return client.disconnect()
 
-        def disconnect_client(result):
-            return client.disconnect()
+            def stop_reactor(result):
+                try:
+                    reactor.stop()
+                except ReactorNotRunning:
+                    log.debug("Attempted to stop the reactor but it is not running...")
 
-        def stop_reactor(result):
-            try:
-                reactor.stop()
-            except ReactorNotRunning:
-                log.debug("Attempted to stop the reactor but it is not running...")
+            def log_failure(failure, action):
+                log.error("Encountered error attempting to %s: %s" % \
+                          (action, failure.getErrorMessage()))
 
-        def log_failure(failure, action):
-            log.error("Encountered error attempting to %s: %s" % \
-                      (action, failure.getErrorMessage()))
+            d = defer.succeed(None)
+            if shutdown:
+                d.addCallback(shutdown_daemon)
+                d.addErrback(log_failure, "shutdown daemon")
+            if not client.is_classicmode() and client.connected():
+                d.addCallback(disconnect_client)
+                d.addErrback(log_failure, "disconnect client")
+            d.addBoth(stop_reactor)
 
-        d = defer.succeed(None)
-        if shutdown:
-            d.addCallback(shutdown_daemon)
-            d.addErrback(log_failure, "shutdown daemon")
-        if not client.is_classicmode() and client.connected():
-            d.addCallback(disconnect_client)
-            d.addErrback(log_failure, "disconnect client")
-        d.addBoth(stop_reactor)
+        if self.config["lock_tray"] and not self.visible():
+            dialog = PasswordDialog(_("Enter your password to Quit Deluge..."))
+            def on_dialog_response(response_id):
+                if response_id == gtk.RESPONSE_OK:
+                    if self.config["tray_password"] == sha(dialog.get_password()).hexdigest():
+                        quit_gtkui()
+            dialog.run().addCallback(on_dialog_response)
+        else:
+            quit_gtkui()
 
     def load_window_state(self):
         x = self.config["window_x_pos"]
@@ -280,9 +306,17 @@ class MainWindow(component.Component):
         Notification().notify(torrent_id)
 
     def is_on_active_workspace(self):
-        # Returns True if mainwindow is on active workspace or wnck module not available
+        """Determines if MainWindow is on the active workspace.
+
+        Returns:
+            bool: True if on active workspace (or wnck module not available), otherwise False.
+
+        """
         if not wnck:
             return True
-        for win in self.screen.get_windows():
-            if win.get_xid() == self.window.window.xid:
-                return win.is_on_workspace(win.get_screen().get_active_workspace())
+        win = wnck.window_get(self.window.window.xid)
+        active_wksp = win.get_screen().get_active_workspace()
+        if active_wksp:
+            return win.is_on_workspace(active_wksp)
+        else:
+            return False

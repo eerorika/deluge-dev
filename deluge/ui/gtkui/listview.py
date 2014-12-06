@@ -146,6 +146,13 @@ class ListView:
             # If this is set, it is used to sort the model
             self.sort_func = None
             self.sort_id = None
+            # Values needed to update TreeViewColumns
+            self.column_type = None
+            self.renderer = None
+            self.text_index = 0
+            self.value_index = 0
+            self.pixbuf_index = 0
+            self.data_func = None
 
     class TreeviewColumn(gtk.TreeViewColumn):
         """
@@ -172,6 +179,14 @@ class ListView:
 
         def onButtonPressed(self, widget, event):
             self.emit('button-press-event', event)
+
+        def set_col_attributes(self, renderer, add=True, **kw):
+            """Helper function to add and set attributes"""
+            if add is True:
+                for attr, value in kw.iteritems():
+                    self.add_attribute(renderer, attr, value)
+            else:
+                self.set_attributes(renderer, **kw)
 
     def __init__(self, treeview_widget=None, state_file=None):
         log.debug("ListView initialized..")
@@ -223,15 +238,17 @@ class ListView:
         model_filter = self.liststore.filter_new()
         model_filter.set_visible_column(
             self.columns["filter"].column_indices[0])
-        sort_info = None
-        if self.model_filter:
-            sort_info = self.model_filter.get_sort_column_id()
-
         self.model_filter = gtk.TreeModelSort(model_filter)
-        if sort_info and sort_info[0] and sort_info[1] > -1:
-            self.model_filter.set_sort_column_id(sort_info[0], sort_info[1])
-        self.set_sort_functions()
         self.treeview.set_model(self.model_filter)
+        self.set_sort_functions()
+        self.set_model_sort()
+
+    def set_model_sort(self):
+        if self.state is not None:
+            for column_state in self.state:
+                if column_state.sort is not None and column_state.sort > -1:
+                    self.treeview.get_model().set_sort_column_id(column_state.sort, column_state.sort_order)
+                    break
 
     def stabilize_sort_func(self, sort_func):
         def stabilized(model, iter1, iter2, data):
@@ -261,10 +278,10 @@ class ListView:
                     position = index
                     break
         sort = None
-        sort_id, order = self.model_filter.get_sort_column_id()
-        if self.get_column_name(sort_id) == column.get_title():
-            sort = sort_id
-
+        if self.model_filter: # Will be None if no list was ever loaded (never connected to server)
+            sort_id, order = self.model_filter.get_sort_column_id()
+            if self.get_column_name(sort_id) == column.get_title():
+                sort = sort_id
         return ListViewColumnState(column.get_title(), position,
             column.get_width(), column.get_visible(),
             sort, int(column.get_sort_order()))
@@ -411,12 +428,52 @@ class ListView:
         # Do the actual row copy
         if self.liststore is not None:
             self.liststore.foreach(copy_row, (new_list, self.columns))
-
         self.liststore = new_list
-        # Create the model
         self.create_model_filter()
-
         return
+
+    def update_treeview_column(self, header, add=True):
+        """Update TreeViewColumn based on ListView column mappings"""
+        column = self.columns[header]
+        tree_column = self.columns[header].column
+
+        if column.column_type == "text":
+            if add:
+                tree_column.pack_start(column.renderer)
+            tree_column.set_col_attributes(column.renderer, add=add,
+                                           text=column.column_indices[column.text_index])
+        elif column.column_type == "bool":
+            if add:
+                tree_column.pack_start(column.renderer)
+            tree_column.set_col_attributes(column.renderer, active=column.column_indices[0])
+        elif column.column_type == "func":
+            if add:
+                tree_column.pack_start(column.renderer, True)
+            indice_arg = column.column_indices[0]
+            if len(column.column_indices) > 1:
+                indice_arg = tuple(column.column_indices)
+            tree_column.set_cell_data_func(column.renderer, column.data_func, indice_arg)
+        elif column.column_type == "progress":
+            if add:
+                tree_column.pack_start(column.renderer)
+            if column.data_func is None:
+                tree_column.set_col_attributes(column.renderer, add=add,
+                                               text=column.column_indices[column.text_index],
+                                               value=column.column_indices[column.value_index])
+            else:
+                tree_column.set_cell_data_func(column.renderer, column.data_func,
+                                               tuple(column.column_indices))
+        elif column.column_type == "texticon":
+            if add:
+                tree_column.pack_start(column.renderer[column.pixbuf_index], False)
+                tree_column.pack_start(column.renderer[column.text_index], True)
+            tree_column.set_col_attributes(column.renderer[column.text_index], add=add,
+                                           text=column.column_indices[column.text_index])
+            if column.data_func is not None:
+                tree_column.set_cell_data_func(
+                    column.renderer[column.pixbuf_index], column.data_func,
+                    column.column_indices[column.pixbuf_index])
+        return True
 
     def remove_column(self, header):
         """Removes the column with the name 'header' from the listview"""
@@ -431,18 +488,19 @@ class ListView:
         # Delete the column
         del self.columns[header]
         self.column_index.remove(header)
-        # Shift the column_indices values of those columns effected by the
-        # removal.  Any column_indices > the one removed.
+        # Shift the column_indices values of those columns affected by the
+        # removal. Any column_indices > the one removed.
         for column in self.columns.values():
             if column.column_indices[0] > column_indices[0]:
                 # We need to shift this column_indices
-                for index in column.column_indices:
-                    index = index - len(column_indices)
+                for i, index in enumerate(column.column_indices):
+                    column.column_indices[i] = index - len(column_indices)
+                # Update the associated TreeViewColumn
+                self.update_treeview_column(column.name, add=False)
 
         # Remove from the liststore columns list
-        for index in column_indices:
+        for index in sorted(column_indices, reverse=True):
             del self.liststore_columns[index]
-
         # Create a new liststore
         self.create_new_liststore()
 
@@ -472,53 +530,27 @@ class ListView:
             self.column_index.append(header)
 
         # Create a new column object and add it to the list
+        column = self.TreeviewColumn(header)
         self.columns[header] = self.ListViewColumn(header, column_indices)
-
+        self.columns[header].column = column
         self.columns[header].status_field = status_field
         self.columns[header].sort_func = sort_func
         self.columns[header].sort_id = column_indices[sortid]
+        # Store creation details
+        self.columns[header].column_type = column_type
+        self.columns[header].renderer = render
+        self.columns[header].text_index = text
+        self.columns[header].value_index = value
+        self.columns[header].pixbuf_index = pixbuf
+        self.columns[header].data_func = function
 
         # Create a new list with the added column
         self.create_new_liststore()
 
-        column = self.TreeviewColumn(header)
-
-        if column_type == "text":
-            column.pack_start(render)
-            column.add_attribute(render, "text",
-                    self.columns[header].column_indices[text])
-        elif column_type == "bool":
-            column.pack_start(render)
-            column.add_attribute(render, "active",
-                    self.columns[header].column_indices[0])
-        elif column_type == "func":
-            column.pack_start(render, True)
-            if len(self.columns[header].column_indices) > 1:
-                column.set_cell_data_func(render, function,
-                        tuple(self.columns[header].column_indices))
-            else:
-                column.set_cell_data_func(render, function,
-                            self.columns[header].column_indices[0])
-        elif column_type == "progress":
-            column.pack_start(render)
-            if function is None:
-                column.add_attribute(render, "text",
-                    self.columns[header].column_indices[text])
-                column.add_attribute(render, "value",
-                    self.columns[header].column_indices[value])
-            else:
-                column.set_cell_data_func(render, function,
-                    tuple(self.columns[header].column_indices))
-        elif column_type == "texticon":
-            column.pack_start(render[pixbuf], False)
-            if function is not None:
-                column.set_cell_data_func(render[pixbuf], function,
-                            self.columns[header].column_indices[pixbuf])
-            column.pack_start(render[text], True)
-            column.add_attribute(render[text], "text",
-                    self.columns[header].column_indices[text])
-        elif column_type == None:
+        if column_type == None:
             return
+
+        self.update_treeview_column(header)
 
         column.set_sort_column_id(self.columns[header].column_indices[sortid])
         column.set_clickable(True)
@@ -540,9 +572,6 @@ class ListView:
                     if column_state.width > 0:
                         column.set_sizing(gtk.TREE_VIEW_COLUMN_FIXED)
                         column.set_fixed_width(column_state.width)
-
-                    if column_state.sort is not None and column_state.sort > -1:
-                        self.model_filter.set_sort_column_id(column_state.sort, column_state.sort_order)
                     column.set_visible(column_state.visible)
                     position = column_state.position
                     break
@@ -559,7 +588,6 @@ class ListView:
 
         # Set hidden in the column
         self.columns[header].hidden = hidden
-        self.columns[header].column = column
         # Re-create the menu item because of the new column
         self.create_checklist_menu()
 
@@ -630,3 +658,45 @@ class ListView:
     def on_keypress_search_by_name(self, model, columnn, key, iter):
         TORRENT_NAME_COL = 5
         return not model[iter][TORRENT_NAME_COL].lower().startswith(key.lower())
+
+    def restore_columns_order_from_state(self):
+        if self.state is None:
+            # No state file exists, so, no reordering can be done
+            return
+        columns = self.treeview.get_columns()
+        def find_column(header):
+            for column in columns:
+                if column.get_title() == header:
+                    return column
+
+        restored_columns = []
+        for col_state in self.state:
+            if col_state.name in restored_columns:
+                # Duplicate column in state!?!?!?
+                continue
+            elif not col_state.visible:
+                # Column is not visible, no need to reposition
+                continue
+
+            try:
+                column_at_position = columns[col_state.position]
+            except IndexError:
+                # Extra columns in loaded state, likely from plugins, so just skip them.
+                continue
+            if col_state.name == column_at_position.get_title():
+                # It's in the right position
+                continue
+            column = find_column(col_state.name)
+            if not column:
+                log.debug("Could not find column matching \"%s\" on state." %
+                          col_state.name)
+                # The cases where I've found that the column could not be found
+                # is when not using the english locale, ie, the default one, or
+                # when changing locales between runs.
+                # On the next load, all should be fine
+                continue
+            self.treeview.move_column_after(column, column_at_position)
+            # Get columns again to keep reordering since positions have changed
+            columns = self.treeview.get_columns()
+            restored_columns.append(col_state.name)
+        self.create_new_liststore()

@@ -839,7 +839,7 @@ class Torrent(object):
         except TypeError:
            # String is already unicode
            pass
-            
+
         if not os.path.exists(dest):
             try:
                 # Try to make the destination path if it doesn't exist

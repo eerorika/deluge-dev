@@ -60,6 +60,17 @@ if windows_check():
         'C:\\Program Files\\7-Zip\\7z.exe',
         'C:\\Program Files (x86)\\7-Zip\\7z.exe',
     ]
+
+    import _winreg
+    try:
+        hkey = _winreg.OpenKey(_winreg.HKEY_CURRENT_USER, "Software\\7-Zip")
+    except WindowsError:
+        pass
+    else:
+        win_7z_path = os.path.join(_winreg.QueryValueEx(hkey, "Path")[0], "7z.exe")
+        _winreg.CloseKey(hkey)
+        win_7z_exes.insert(1, win_7z_path)
+
     switch_7z = "x -y"
     ## Future suport:
     ## 7-zip cannot extract tar.* with single command.
@@ -111,7 +122,6 @@ class Core(CorePluginBase):
         if not self.config["extract_path"]:
             self.config["extract_path"] = deluge.configmanager.ConfigManager("core.conf")["download_location"]
         component.get("EventManager").register_event_handler("TorrentFinishedEvent", self._on_torrent_finished)
-
     def disable(self):
         component.get("EventManager").deregister_event_handler("TorrentFinishedEvent", self._on_torrent_finished)
 
@@ -123,11 +133,7 @@ class Core(CorePluginBase):
         This is called when a torrent finishes and checks if any files to extract.
         """
         tid = component.get("TorrentManager").torrents[torrent_id]
-        tid_status = tid.get_status(["save_path", "move_completed", "name"])
-
-        if tid_status["move_completed"]:
-            log.warning("EXTRACTOR: Cannot extract torrents with 'Move Completed' enabled")
-            return
+        tid_status = tid.get_status(["save_path", "name"])
 
         files = tid.get_files()
         for f in files:

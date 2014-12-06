@@ -39,13 +39,25 @@ gobject.set_prgname("deluge")
 
 # Install the twisted reactor
 from twisted.internet import gtk2reactor
-reactor = gtk2reactor.install()
+
+try:
+    from twisted.internet.error import ReactorAlreadyInstalledError
+except ImportError:
+    # ReactorAlreadyInstalledError not available in Twisted version < 10
+    pass
+
+try:
+    reactor = gtk2reactor.install()
+except ReactorAlreadyInstalledError:
+    # Running unit tests so trial already installed a rector
+    pass
 
 import gettext
 import locale
 import pkg_resources
 import gtk, gtk.glade
 import sys
+import warnings
 
 try:
     from setproctitle import setproctitle, getproctitle
@@ -178,7 +190,15 @@ class GtkUI(object):
         try:
             import gnome.ui
             import gnome
-            self.gnome_prog = gnome.init("Deluge", deluge.common.get_version())
+
+            #Suppress: Warning: Attempt to add property GnomeProgram::*** after class was initialised
+            original_filters = warnings.filters[:]
+            warnings.simplefilter("ignore")
+            try:
+                self.gnome_prog = gnome.init("Deluge", deluge.common.get_version())
+            finally:
+                warnings.filters = original_filters
+
             self.gnome_client = gnome.ui.master_client()
             def on_die(*args):
                 reactor.stop()
