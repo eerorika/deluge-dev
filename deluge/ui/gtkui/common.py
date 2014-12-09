@@ -265,12 +265,30 @@ def associate_magnet_links(overwrite=False):
     return False
 
 def current_path_mapping():
+    """
+    Returns path mappings for current connection. Empty sequence if none
+    configured.
+
+    :returns: sequence of path mappings
+    :rtype: sequence
+
+    """
     from deluge.configmanager import ConfigManager
     host_mapping = ConfigManager("gtkui.conf")["path_mapping"]
     host, _, _ = client.connection_info()
     return host_mapping[host] if host in host_mapping else []
 
 def open_file(filepath, timestamp=None):
+    """
+    Opens a file or folder using the system configured program. Remote
+    filepaths are mapped to local paths.
+
+    :param path: the path to the file or folder to open
+    :type path: string
+    :param timestamp: the timestamp of the event that requested to open
+    :type timestamp: int
+
+    """
     from re import subn
     from os import sep, path
     for local, remote in current_path_mapping():
